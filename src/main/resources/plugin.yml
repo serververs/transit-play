@@ -1,0 +1,16 @@
+name: SerververseRelay
+prefix: Serververse Relay
+version: '${project.version}'
+main: com.serververse.relay.RelayPlugin
+api-version: '1.18'
+description: Gives this Minecraft server a public address through Serververse Relay (no port forwarding needed)
+website: https://serververs.com
+author: Serververse
+commands:
+  relay:
+    description: Serververse Relay status and control
+    usage: /relay <status|reconnect|claim <code>>
+    permission: serververse.relay.admin
+permissions:
+  serververse.relay.admin:
+    default: op

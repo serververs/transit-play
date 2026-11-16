@@ -1,0 +1,24 @@
+# Serververse Relay - tunnel client
+#
+# 1. Your relay server appears in the Serververse dashboard once it is assigned to you.
+# 2. On its page, click "Generate claim code", then run   /relay claim <code>   here
+#    (in the game as an operator, or in the console).
+# The plugin then fills in agent-id, agent-secret and tunnel-* below by itself.
+
+# Base URL of the Serververse API (https://...). Used only for /relay claim.
+api-url: "https://labs-api.serververs.com"
+
+# Filled in by /relay claim. Do not share agent-secret.
+agent-id: ""
+agent-secret: ""
+tunnel-host: ""
+tunnel-port: 7000
+
+# Where this Minecraft server listens locally. 0 = use the server's own port.
+local-host: "127.0.0.1"
+local-port: 0
+
+# Send a PROXY protocol header so the server sees players' real IPs.
+# Only enable this together with "proxy-protocol: true" in config/paper-global.yml
+# (Paper) or the equivalent in your proxy, otherwise players cannot join.
+proxy-protocol: false
