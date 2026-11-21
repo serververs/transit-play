@@ -38,6 +38,8 @@ public final class RelayClient {
         public String localHost = "127.0.0.1";
         public int localPort = 25565;
         public boolean proxyProtocol;
+        /** Optional; null disables the anti-bot. */
+        public AntiBot antiBot;
     }
 
     private static final int BUFFER = 16 * 1024;
@@ -195,6 +197,14 @@ public final class RelayClient {
             writeLine(data.getOutputStream(),
                     MiniJson.obj("type", "attach", "agentId", cfg.agentId, "secret", cfg.secret, "connId", connId));
 
+            // Anti-bot runs before we touch the local server, so bots never reach it
+            byte[] replay = null;
+            if (cfg.antiBot != null) {
+                AntiBot.Result r = cfg.antiBot.inspect(playerIp, data.getInputStream(), data.getOutputStream(), data);
+                if (!r.allow) return;
+                replay = r.replay;
+            }
+
             local = new Socket();
             openSockets.add(local);
             try {
@@ -208,6 +218,10 @@ public final class RelayClient {
 
             if (cfg.proxyProtocol) {
                 local.getOutputStream().write(proxyHeader(playerIp, playerPort).getBytes(StandardCharsets.US_ASCII));
+            }
+            if (replay != null && replay.length > 0) {
+                local.getOutputStream().write(replay);
+                local.getOutputStream().flush();
             }
 
             active.incrementAndGet();

@@ -22,3 +22,51 @@ local-port: 0
 # Only enable this together with "proxy-protocol: true" in config/paper-global.yml
 # (Paper) or the equivalent in your proxy, otherwise players cannot join.
 proxy-protocol: false
+
+# ---------------------------------------------------------------------------
+# AntiBot (Serververse Shield) - checks every player connection BEFORE it
+# reaches this server. Bots are kicked at the handshake, so they never load a
+# world, use a slot or touch your plugins. Change it, then run /relay reconnect.
+# ---------------------------------------------------------------------------
+antibot:
+  enabled: true
+
+  # When new players must pass the rejoin check (kicked once with "please
+  # rejoin", must come back within the window below):
+  #   always        - every new player, once per IP + name (most protection)
+  #   during-attack - only while attack mode is on (default, no friction normally)
+  #   never         - rate limits and name checks only
+  verify: during-attack
+  verify-min-rejoin-ms: 1500     # rejoining faster than this = bot
+  verify-max-rejoin-ms: 60000    # rejoining later than this = start over
+  verified-expiry-days: 7        # verified players skip checks this long
+
+  attack:
+    threshold-logins-per-second: 8   # more logins than this per second = attack mode
+    cooldown-seconds: 30             # attack mode stays on this long after the last spike
+    max-new-players-per-second: 5    # unverified players let in per second during an attack
+
+  limits:
+    max-open-handshakes: 200         # unfinished handshakes at once (slowloris guard)
+    max-open-handshakes-per-ip: 3
+    handshake-timeout-ms: 5000
+    connections-per-ip-per-10s: 6
+    logins-per-ip-per-10s: 3
+    pings-per-ip-per-10s: 10         # server list pings
+    names-per-ip-per-10m: 3          # different usernames from one IP
+
+  min-protocol: 47                   # 47 = 1.8; raise to block older clients
+  name-pattern: "^[a-zA-Z0-9_]{3,16}$"
+
+  blacklist:
+    after-fails: 5                   # failed checks before an IP is blocked
+    minutes: 10
+
+  messages:
+    verify: "Serververse Shield is checking your connection.\nPlease rejoin the server."
+    verify-failed: "Verification failed.\nPlease wait a few seconds, then rejoin."
+    attack: "This server is under a bot attack.\nPlease try again in a few seconds."
+    throttled: "You are connecting too fast.\nPlease wait a moment and try again."
+    invalid-name: "Invalid username."
+    outdated: "Your Minecraft version is not supported."
+    blacklisted: "Too many failed connection attempts.\nPlease try again later."
