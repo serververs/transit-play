@@ -9,7 +9,7 @@ author: Serververse
 commands:
   relay:
     description: Serververse Relay status and control
-    usage: /relay <status|reconnect|claim <code>>
+    usage: /relay <status|reconnect|claim <code>|antibot>
     permission: serververse.relay.admin
 permissions:
   serververse.relay.admin:

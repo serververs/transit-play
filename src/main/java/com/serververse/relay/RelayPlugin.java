@@ -3,6 +3,7 @@ package com.serververse.relay;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -16,6 +17,7 @@ import java.util.Map;
 public final class RelayPlugin extends JavaPlugin implements CommandExecutor {
 
     private volatile RelayClient client;
+    private volatile AntiBot antiBot;
 
     @Override
     public void onEnable() {
@@ -28,6 +30,65 @@ public final class RelayPlugin extends JavaPlugin implements CommandExecutor {
     @Override
     public void onDisable() {
         if (client != null) client.stop();
+        if (antiBot != null) antiBot.shutdown();
+    }
+
+    private AntiBot antiBot() {
+        if (antiBot != null) return antiBot;
+        ConfigurationSection a = getConfig().getConfigurationSection("antibot");
+        AntiBot.Config c = new AntiBot.Config();
+        if (a != null) {
+            c.enabled = a.getBoolean("enabled", c.enabled);
+            try {
+                c.verify = AntiBot.VerifyMode.valueOf(a.getString("verify", "during-attack").toUpperCase().replace('-', '_'));
+            } catch (IllegalArgumentException e) {
+                getLogger().warning("antibot.verify must be always, during-attack or never");
+            }
+            try {
+                c.method = AntiBot.VerifyMethod.valueOf(a.getString("verify-method", "limbo").toUpperCase());
+            } catch (IllegalArgumentException e) {
+                getLogger().warning("antibot.verify-method must be limbo or rejoin");
+            }
+            c.limboTimeoutMs = a.getLong("limbo.timeout-seconds", 15) * 1000L;
+            c.limboTicks = a.getInt("limbo.gravity-ticks", c.limboTicks);
+            c.limboMaxSessions = a.getInt("limbo.max-players", c.limboMaxSessions);
+            c.verifyMinRejoinMs = a.getLong("verify-min-rejoin-ms", c.verifyMinRejoinMs);
+            c.verifyMaxRejoinMs = a.getLong("verify-max-rejoin-ms", c.verifyMaxRejoinMs);
+            c.verifiedExpiryMs = a.getLong("verified-expiry-days", 7) * 86_400_000L;
+            c.attackThresholdPerSecond = a.getInt("attack.threshold-logins-per-second", c.attackThresholdPerSecond);
+            c.attackCooldownMs = a.getLong("attack.cooldown-seconds", 30) * 1000L;
+            c.attackMaxNewPerSecond = a.getInt("attack.max-new-players-per-second", c.attackMaxNewPerSecond);
+            c.maxPreLoginGlobal = a.getInt("limits.max-open-handshakes", c.maxPreLoginGlobal);
+            c.maxPreLoginPerIp = a.getInt("limits.max-open-handshakes-per-ip", c.maxPreLoginPerIp);
+            c.handshakeTimeoutMs = a.getLong("limits.handshake-timeout-ms", c.handshakeTimeoutMs);
+            c.maxConnectionsPerIpPer10s = a.getInt("limits.connections-per-ip-per-10s", c.maxConnectionsPerIpPer10s);
+            c.maxLoginsPerIpPer10s = a.getInt("limits.logins-per-ip-per-10s", c.maxLoginsPerIpPer10s);
+            c.maxPingsPerIpPer10s = a.getInt("limits.pings-per-ip-per-10s", c.maxPingsPerIpPer10s);
+            c.maxNamesPerIpPer10m = a.getInt("limits.names-per-ip-per-10m", c.maxNamesPerIpPer10m);
+            c.minProtocol = a.getInt("min-protocol", c.minProtocol);
+            c.namePattern = a.getString("name-pattern", c.namePattern);
+            c.blacklistAfterFails = a.getInt("blacklist.after-fails", c.blacklistAfterFails);
+            c.blacklistDurationMs = a.getLong("blacklist.minutes", 10) * 60_000L;
+            ConfigurationSection m = a.getConfigurationSection("messages");
+            if (m != null) {
+                c.msgVerify = m.getString("verify", c.msgVerify);
+                c.msgVerifyFailed = m.getString("verify-failed", c.msgVerifyFailed);
+                c.msgVerified = m.getString("verified", c.msgVerified);
+                c.msgAttack = m.getString("attack", c.msgAttack);
+                c.msgThrottled = m.getString("throttled", c.msgThrottled);
+                c.msgInvalidName = m.getString("invalid-name", c.msgInvalidName);
+                c.msgOutdated = m.getString("outdated", c.msgOutdated);
+                c.msgBlacklisted = m.getString("blacklisted", c.msgBlacklisted);
+            }
+        }
+        if (!c.enabled) return null;
+        antiBot = new AntiBot(c, new RelayClient.Log() {
+            public void info(String msg) { getLogger().info(msg); }
+            public void warn(String msg) { getLogger().warning(msg); }
+        }, getDataFolder().toPath().resolve("verified-players.txt"));
+        getLogger().info("AntiBot enabled (verify: " + c.verify.name().toLowerCase().replace('_', '-')
+                + ", method: " + c.method.name().toLowerCase() + ")");
+        return antiBot;
     }
 
     private void boot() {
@@ -56,6 +117,7 @@ public final class RelayPlugin extends JavaPlugin implements CommandExecutor {
         int lp = c.getInt("local-port", 0);
         s.localPort = lp > 0 ? lp : getServer().getPort();
         s.proxyProtocol = c.getBoolean("proxy-protocol", false);
+        s.antiBot = antiBot();
 
         RelayClient rc = new RelayClient(s, new RelayClient.Log() {
             public void info(String m) { getLogger().info(m); }
@@ -137,9 +199,12 @@ public final class RelayPlugin extends JavaPlugin implements CommandExecutor {
                             + " active, " + rc.totalConnections() + " total");
                 }
             }
+            case "antibot" -> antiBotCommand(sender, args);
             case "reconnect" -> {
                 if (rc != null) rc.stop();
                 client = null;
+                if (antiBot != null) antiBot.shutdown();
+                antiBot = null;
                 reloadConfig();
                 getServer().getScheduler().runTaskAsynchronously(this, this::boot);
                 sender.sendMessage("[Serververse Relay] Reconnecting...");
@@ -153,9 +218,34 @@ public final class RelayPlugin extends JavaPlugin implements CommandExecutor {
                     getServer().getScheduler().runTaskAsynchronously(this, () -> claim(sender, code));
                 }
             }
-            default -> sender.sendMessage("[Serververse Relay] Usage: /relay <status|reconnect|claim>");
+            default -> sender.sendMessage("[Serververse Relay] Usage: /relay <status|reconnect|claim|antibot>");
         }
         return true;
+    }
+
+    private void antiBotCommand(CommandSender sender, String[] args) {
+        AntiBot ab = antiBot;
+        if (ab == null) {
+            sender.sendMessage("[Serververse Relay] AntiBot is off (antibot.enabled in config.yml, then /relay reconnect).");
+            return;
+        }
+        String sub = args.length > 1 ? args[1].toLowerCase() : "stats";
+        switch (sub) {
+            case "stats" -> sender.sendMessage("[Serververse Relay] AntiBot - " + ab.stats());
+            case "unblock" -> {
+                if (args.length < 3) {
+                    sender.sendMessage("[Serververse Relay] Usage: /relay antibot unblock <ip>");
+                } else {
+                    sender.sendMessage("[Serververse Relay] " + (ab.unblock(args[2])
+                            ? "Unblocked " + args[2] : args[2] + " was not blacklisted"));
+                }
+            }
+            case "clear-verified" -> {
+                ab.clearVerified();
+                sender.sendMessage("[Serververse Relay] Cleared the verified players list.");
+            }
+            default -> sender.sendMessage("[Serververse Relay] Usage: /relay antibot <stats|unblock <ip>|clear-verified>");
+        }
     }
 
     private static boolean isBlank(String s) {
