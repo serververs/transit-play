@@ -49,10 +49,16 @@ public final class AntiBot {
     // ------------------------------------------------------------------ config
 
     public enum VerifyMode { ALWAYS, DURING_ATTACK, NEVER }
+    public enum VerifyMethod { LIMBO, REJOIN }
 
     public static final class Config {
         public boolean enabled = true;
         public VerifyMode verify = VerifyMode.DURING_ATTACK;
+        /** LIMBO = fake-world gravity check (1.20.5+, older versions fall back to REJOIN). */
+        public VerifyMethod method = VerifyMethod.LIMBO;
+        public long limboTimeoutMs = 15_000;
+        public int limboTicks = 8;
+        public int limboMaxSessions = 100;
         public long verifyMinRejoinMs = 1_500;
         public long verifyMaxRejoinMs = 60_000;
         public long verifiedExpiryMs = TimeUnit.DAYS.toMillis(7);
@@ -83,6 +89,7 @@ public final class AntiBot {
         public String msgInvalidName = "Invalid username.";
         public String msgOutdated = "Your Minecraft version is not supported.";
         public String msgBlacklisted = "Too many failed connection attempts.\nPlease try again later.";
+        public String msgVerified = "Verified! Please rejoin the server.";
         public String msgVerifyFailed = "Verification failed.\nPlease wait a few seconds, then rejoin.";
     }
 
@@ -116,6 +123,7 @@ public final class AntiBot {
     private final Map<String, Long> blacklist = new ConcurrentHashMap<>();      // ip -> until
     private final Map<String, IpState> ips = new ConcurrentHashMap<>();
     private final AtomicInteger preLogin = new AtomicInteger();
+    private final AtomicInteger limboSessions = new AtomicInteger();
 
     private final AtomicInteger loginsThisSecond = new AtomicInteger();
     private final AtomicInteger newThisSecond = new AtomicInteger();
@@ -179,7 +187,7 @@ public final class AntiBot {
         int oldTimeout = sock.getSoTimeout();
         try {
             sock.setSoTimeout((int) cfg.handshakeTimeoutMs);
-            return inspectPackets(ip, st, new DataInputStream(rawIn), out, now, blacklisted);
+            return inspectPackets(ip, st, new DataInputStream(rawIn), out, now, blacklisted, sock);
         } catch (java.net.SocketTimeoutException e) {
             return block(ip, null, "handshake timeout", null, null, true);
         } catch (ProtocolError | EOFException e) {
@@ -191,7 +199,7 @@ public final class AntiBot {
         }
     }
 
-    private Result inspectPackets(String ip, IpState st, DataInputStream in, OutputStream out, long now, boolean blacklisted) throws IOException {
+    private Result inspectPackets(String ip, IpState st, DataInputStream in, OutputStream out, long now, boolean blacklisted, java.net.Socket sock) throws IOException {
         ByteArrayOutputStream replay = new ByteArrayOutputStream(256);
 
         int first = in.readUnsignedByte();
@@ -253,7 +261,37 @@ public final class AntiBot {
         boolean mustVerify = cfg.verify == VerifyMode.ALWAYS || (cfg.verify == VerifyMode.DURING_ATTACK && attack);
         if (!mustVerify) return allow(replay, name);
 
-        // ---- Reconnect verification
+        // ---- Limbo (gravity) verification
+        if (cfg.method == VerifyMethod.LIMBO && Limbo.supports(protocol)) {
+            if (limboSessions.incrementAndGet() > cfg.limboMaxSessions) {
+                limboSessions.decrementAndGet();
+                return block(ip, name, "limbo full", cfg.msgAttack, out, false);
+            }
+            Limbo.Session session;
+            try {
+                session = Limbo.run(protocol, name, sock, in, out, cfg.limboTimeoutMs, cfg.limboTicks,
+                        cfg.msgVerified, cfg.msgVerifyFailed, log);
+            } finally {
+                limboSessions.decrementAndGet();
+            }
+            statBlocked.incrementAndGet(); // the limbo connection itself never reaches the server
+            switch (session.outcome) {
+                case PASSED -> {
+                    verified.put(key, System.currentTimeMillis());
+                    statVerified.incrementAndGet();
+                    return new Result(false, null, "verified in limbo", name);
+                }
+                case FAILED -> {
+                    block(ip, name, "limbo: " + session.detail, null, null, true);
+                    return new Result(false, null, "limbo: " + session.detail, name);
+                }
+                default -> {
+                    return new Result(false, null, "limbo: " + session.detail, name);
+                }
+            }
+        }
+
+        // ---- Reconnect verification (versions without limbo data, or method: rejoin)
         Long firstSeen = pending.get(key);
         if (firstSeen == null || now - firstSeen > cfg.verifyMaxRejoinMs) {
             pending.put(key, now);

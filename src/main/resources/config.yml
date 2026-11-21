@@ -37,6 +37,16 @@ antibot:
   #   during-attack - only while attack mode is on (default, no friction normally)
   #   never         - rate limits and name checks only
   verify: during-attack
+  # How new players are checked:
+  #   limbo  - Sonar-style: they join a tiny empty world for ~1 second and must fall
+  #            with real Minecraft gravity, then rejoin. Works on 1.20.5 and newer;
+  #            older versions automatically use the rejoin check instead.
+  #   rejoin - kicked once with "please rejoin", must come back within the window.
+  verify-method: limbo
+  limbo:
+    timeout-seconds: 15     # loading screen + fall must finish within this
+    gravity-ticks: 8        # falling ticks that must match vanilla physics
+    max-players: 100        # players in limbo at once
   verify-min-rejoin-ms: 1500     # rejoining faster than this = bot
   verify-max-rejoin-ms: 60000    # rejoining later than this = start over
   verified-expiry-days: 7        # verified players skip checks this long
@@ -64,6 +74,7 @@ antibot:
 
   messages:
     verify: "Serververse Shield is checking your connection.\nPlease rejoin the server."
+    verified: "Verified! Please rejoin the server."
     verify-failed: "Verification failed.\nPlease wait a few seconds, then rejoin."
     attack: "This server is under a bot attack.\nPlease try again in a few seconds."
     throttled: "You are connecting too fast.\nPlease wait a moment and try again."

@@ -44,6 +44,14 @@ public final class RelayPlugin extends JavaPlugin implements CommandExecutor {
             } catch (IllegalArgumentException e) {
                 getLogger().warning("antibot.verify must be always, during-attack or never");
             }
+            try {
+                c.method = AntiBot.VerifyMethod.valueOf(a.getString("verify-method", "limbo").toUpperCase());
+            } catch (IllegalArgumentException e) {
+                getLogger().warning("antibot.verify-method must be limbo or rejoin");
+            }
+            c.limboTimeoutMs = a.getLong("limbo.timeout-seconds", 15) * 1000L;
+            c.limboTicks = a.getInt("limbo.gravity-ticks", c.limboTicks);
+            c.limboMaxSessions = a.getInt("limbo.max-players", c.limboMaxSessions);
             c.verifyMinRejoinMs = a.getLong("verify-min-rejoin-ms", c.verifyMinRejoinMs);
             c.verifyMaxRejoinMs = a.getLong("verify-max-rejoin-ms", c.verifyMaxRejoinMs);
             c.verifiedExpiryMs = a.getLong("verified-expiry-days", 7) * 86_400_000L;
@@ -65,6 +73,7 @@ public final class RelayPlugin extends JavaPlugin implements CommandExecutor {
             if (m != null) {
                 c.msgVerify = m.getString("verify", c.msgVerify);
                 c.msgVerifyFailed = m.getString("verify-failed", c.msgVerifyFailed);
+                c.msgVerified = m.getString("verified", c.msgVerified);
                 c.msgAttack = m.getString("attack", c.msgAttack);
                 c.msgThrottled = m.getString("throttled", c.msgThrottled);
                 c.msgInvalidName = m.getString("invalid-name", c.msgInvalidName);
@@ -77,7 +86,8 @@ public final class RelayPlugin extends JavaPlugin implements CommandExecutor {
             public void info(String msg) { getLogger().info(msg); }
             public void warn(String msg) { getLogger().warning(msg); }
         }, getDataFolder().toPath().resolve("verified-players.txt"));
-        getLogger().info("AntiBot enabled (verify: " + c.verify.name().toLowerCase().replace('_', '-') + ")");
+        getLogger().info("AntiBot enabled (verify: " + c.verify.name().toLowerCase().replace('_', '-')
+                + ", method: " + c.method.name().toLowerCase() + ")");
         return antiBot;
     }
 
